@@ -1,54 +1,44 @@
 from fastapi import FastAPI, HTTPException
-import yt_dlp
+import requests
 
-app = FastAPI(title="Beatly Ultimate Speed API")
+app = FastAPI(title="Beatly Premium Stream API")
 
 @app.get("/")
 def get_stream(id: str = None):
     if not id:
-        return {"status": "Beatly API Active. Pass ?id="}
+        return {"status": "Beatly Stream API is online. Pass an ?id="}
         
-    video_url = f"https://www.youtube.com/watch?v={id}"
-    
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'skip_download': True,
-        'quiet': True,
-        'no_warnings': True,
-        
-        # SPEED CRITICAL OPTIMIZATIONS:
-        'process': False,                     # Don't resolve playlists or extra deep formats
-        'extract_flat': True,                 # Scrape fast metadata blocks only
-        'force_generic_extractor': False,
-        
-        # Bypass webpage scraper downloads to jump straight to the streaming API manifest
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android_vr', 'ios'], # Ultra-fast internal light signatures
-                'skip': ['webpage', 'configs', 'js']    # Completely skip downloading 3MB+ of HTML/JS
-            }
-        }
-    }
+    # Ask a decentralized instance for the stream manifest instead of scraping it ourselves.
+    # This completely bypasses YouTube's bot wall.
+    piped_url = f"https://pipedapi.kavin.rocks/streams/{id}"
     
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Instant flat metadata lookup
-            info = ydl.extract_info(video_url, download=False, process=False)
-            formats = info.get('formats', [])
+        # Fetch the metadata from the proxy
+        response = requests.get(piped_url, timeout=8)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Extract the audio-only streams
+        audio_streams = data.get("audioStreams", [])
+        
+        if not audio_streams:
+            raise HTTPException(status_code=404, detail="Could not extract direct stream URL.")
             
-            # Instantly filter for direct raw audio formats in memory
-            audio_formats = [f for f in formats if f.get('vcodec') == 'none' and f.get('url')]
+        # Grab the highest quality m4a/webm audio URL available
+        stream_url = audio_streams[-1].get("url")
+        
+        return {"stream_url": stream_url}
+        
+    except requests.exceptions.RequestException as e:
+        # Fallback to an alternate proxy instance if the main one is busy
+        try:
+            backup_url = f"https://pipedapi.lunar.icu/streams/{id}"
+            backup_resp = requests.get(backup_url, timeout=8)
+            backup_resp.raise_for_status()
+            backup_data = backup_resp.json()
             
-            if audio_formats:
-                # Grab the top optimized direct streaming link
-                stream_url = audio_formats[-1].get('url')
-            else:
-                stream_url = info.get('url') or (formats[0].get('url') if formats else None)
-                
-            if not stream_url:
-                raise HTTPException(status_code=404, detail="Stream URL could not be unpacked rapidly.")
-                
+            stream_url = backup_data.get("audioStreams", [])[-1].get("url")
             return {"stream_url": stream_url}
             
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        except Exception as backup_error:
+            raise HTTPException(status_code=500, detail="All proxy routes blocked or timed out.")
