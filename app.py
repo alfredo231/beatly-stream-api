@@ -1,8 +1,40 @@
 from fastapi import FastAPI, HTTPException
 import yt_dlp
+import tempfile
 import os
 
 app = FastAPI(title="Beatly Premium Stream API")
+
+# Hardcoded direct cookie payload to bypass Vercel deployment constraints
+COOKIE_DATA = r"""# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.youtube.com	TRUE	/	TRUE	1791627875	__Secure-BUCKET	CM8D
+.youtube.com	TRUE	/	FALSE	1787923896	_gcl_au	1.1.369108716.1780147896
+.youtube.com	TRUE	/	TRUE	1816439552	PREF	f4=4000000&f6=40000000&tz=Africa.Cairo&f7=100&f5=30000&repeat=NONE&autoplay=true&guide_collapsed=false&hl=en&gl=US
+.youtube.com	TRUE	/	FALSE	1816087896	SID	g.a000_AgBXdmvh4gT8GC8C-jvyVip_JqZvEfzoA68_i_fZGAKryoPKs6G3rRpNaw0lES1onKWUgACgYKAbcSARISFQHGX2Miig2pmxONYUTSzr75NryYVBoVAUF8yKqAXpyZwayY9RLJxGEb4T0_0076
+.youtube.com	TRUE	/	TRUE	1816087896	__Secure-1PSID	g.a000_AgBXdmvh4gT8GC8C-jvyVip_JqZvEfzoA68_i_fZGAKryoPTuBALLwtOEm16D6budn3sgACgYKAesSARISFQHGX2Mib2MRZvs1UNkvjEYedgN-SRoVAUF8yKpFr0r_grSaC5Ihu4SBX9yJ0076
+.youtube.com	TRUE	/	TRUE	1816087896	__Secure-3PSID	g.a000_AgBXdmvh4gT8GC8C-jvyVip_JqZvEfzoA68_i_fZGAKryoP22e4qwYJDZ4n9HJwIlZHngACgYKAZ8SARISFQHGX2Mir293iInjp3PC4gBa8hA-thoVAUF8yKqbdemJAOtXlA_9gSONYMst0076
+.youtube.com	TRUE	/	FALSE	1816087896	HSID	AiWKbbNFy-o2g4gQY
+.youtube.com	TRUE	/	TRUE	1816087896	SSID	AQs18XvRv928D0DZW
+.youtube.com	TRUE	/	FALSE	1816087896	APISID	RAk6c3rxtVumgfWk/AJIEubo6vQ1BBfMwH
+.youtube.com	TRUE	/	TRUE	1816087896	SAPISID	zdzJM9cCrXf9b5Hu/AAspxM__K6HwpAOCK
+.youtube.com	TRUE	/	TRUE	1816087896	__Secure-1PAPISID	zdzJM9cCrXf9b5Hu/AAspxM__K6HwpAOCK
+.youtube.com	TRUE	/	TRUE	1816087896	__Secure-3PAPISID	zdzJM9cCrXf9b5Hu/AAspxM__K6HwpAOCK
+.youtube.com	TRUE	/	TRUE	1797690733	NID	532=fwWpHbgZNHr1j2AUR9BSlorqvB9XZQFfwJTsaZx184ty2SQJreT09ckdYwBS-KXoAsJoezdC-Az2XezH-zygdZRf2ZRZB-aRr2JlG1zVimaVqbCzfcLFbUT5CKN-r5a-sqV5N9R05UPDGeRfDscyEHl4tXFnwLsAWPrH1A2sVLY7qIqLjU8S8kXt
+.youtube.com	TRUE	/	TRUE	1813415533	__Secure-1PSIDTS	sidts-CjUByojQU33p5kLo-64hmNHIQ_cwpJ_PkMwouapEwSqCXG3SIFRoKW9-piEM8BELZPc0qwdZVhAA
+.youtube.com	TRUE	/	TRUE	1813415533	__Secure-3PSIDTS	sidts-CjUByojQU33p5kLo-64hmNHIQ_cwpJ_PkMwouapEwSqCXG3SIFRoKW9-piEM8BELZPc0qwdZVhAA
+.youtube.com	TRUE	/	TRUE	1816439549	LOGIN_INFO	AFmmF2swRQIgQSDTjyhlTZzjAZUQcudTE_fh2u5EIr9DfBQA3T21NTkCIQDul87CTNbWsqhXOJZ9wxONTqXktPao9_UXLjijLSPEFw:QUQ3MjNmeW9ScWEzekhFaTROVG9MOEZqQXFScFh4cW90U0dYN0hkY1BrVlV5aVZoallBbFhDZkdOdkhWb1pXVmQ3aEhuMzhWeElGR3dZeVlXczRMdktEeENRWXNEd3JNUm81SFAtaW02NEFYSkdnTWpPTFBKZExrbHRKdUpzbGtNQUI0ZllFSTlmY3hyemNvS3hhSzdHdHFtOWdxUjFVV1hR
+.youtube.com	TRUE	/	FALSE	1813415556	SIDCC	AKEyXzVZTPaAxkNsCZyuNHrTWHDG1qNBIr4p7b_uc0kkX510cfcWd2gm99BRm1MH-rgKmGGF
+.youtube.com	TRUE	/	TRUE	1813415556	__Secure-1PSIDCC	AKEyXzX5ucYvKZrXCAs-dEOawwdtwVa1Ytwakd4kVM82DWs4P0Ogrr4VTlqpw-rMqX6Ck9-JbQ
+.youtube.com	TRUE	/	TRUE	1813415556	__Secure-3PSIDCC	AKEyXzWBCg_vik6Vp1OQZi0MwcVn5i43c8oBr7WaMwpZn3GoAFpT8gwZrJL1xbk9o5I38xrA
+.youtube.com	TRUE	/	TRUE	1797431556	VISITOR_INFO1_LIVE	be802TPOtmE
+.youtube.com	TRUE	/	TRUE	1797431556	VISITOR_PRIVACY_METADATA	CgJFRxIEGgAgQA%3D%3D
+.youtube.com	TRUE	/	TRUE	0	YSC	vjR1jmIFwKU
+.youtube.com	TRUE	/	TRUE	1797431522	__Secure-YNID	19.YT=gceZZPYJRrCxT1Hds-HqcxB0z5apTH5mC8gZT5viBBVqhn5IlIn6zAYXIUwiEsNvgG_XTxA7sY-8jijaPLDQ3Bczte9hbprMus9F5m70OzoGT3DHs4ahrZ0rIrGVWSaK64MtXtlLFyZkTdUDdcZB35khSwY9HnwfRdAWDW4VCrrkXO_MwMIszZsagHGVOtg8Tp9x9MC3ObOwNK1jGeoyoB4NUka53pRHhuV1uAxSWCZvMEJzZgb3O7OF9TLfVHIYyDOwu5Tzjg5MN7v8HDuomVJDq1PCqfjysH-kfskjoPXFnHOwNqe5DlyVVu2-KCi1wDNBZp0Buyab2kNQwLtwcQ
+.youtube.com	TRUE	/	TRUE	1797431522	__Secure-ROLLOUT_TOKEN	CL6GmqOC3KmxkQEQwfyR7fHbjwMY57XGv8KTlQM%3D
+"""
 
 @app.get("/")
 def get_stream(id: str = None):
@@ -11,27 +43,40 @@ def get_stream(id: str = None):
         
     video_url = f"https://www.youtube.com/watch?v={id}"
     
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'skip_download': True,
-        'quiet': True,
-        'no_warnings': True,
-    }
-    
-    # Locate the cookies file inside the deployment environment
-    cookie_path = os.path.join(os.path.dirname(__file__), "..", "cookies.txt")
-    if os.path.exists(cookie_path):
-        ydl_opts['cookiefile'] = cookie_path
-    
     try:
+        # Create an ephemeral temp file in Vercel memory that yt-dlp can safely read
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as temp_cookie_file:
+            temp_cookie_file.write(COOKIE_DATA.strip())
+            temp_cookie_file_path = temp_cookie_file.name
+
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'skip_download': True,
+            'quiet': True,
+            'no_warnings': True,
+            'cookiefile': temp_cookie_file_path,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios'],
+                    'skip': ['webpage', 'configs', 'js']
+                }
+            }
+        }
+        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             stream_url = info.get('url')
             
+            # Wipe the temp file safely from memory
+            if os.path.exists(temp_cookie_file_path):
+                os.remove(temp_cookie_file_path)
+                
             if not stream_url:
                 raise HTTPException(status_code=404, detail="Could not extract stream URL")
                 
             return {"stream_url": stream_url}
             
     except Exception as e:
+        if 'temp_cookie_file_path' in locals() and os.path.exists(temp_cookie_file_path):
+            os.remove(temp_cookie_file_path)
         raise HTTPException(status_code=500, detail=str(e))
